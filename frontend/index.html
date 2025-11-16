@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Meta tags for SEO -->
+    <title>ChargeMitra - India's EV Charger Sharing Platform</title>
+    <meta name="description" content="Find, book, and share EV chargers across India. Join thousands of drivers and hosts creating a sustainable future together." />
+    <meta name="keywords" content="EV charging, electric vehicle, India, charger sharing, sustainable transport" />
+    <meta name="author" content="ChargeMitra" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://chargemitra.com/" />
+    <meta property="og:title" content="ChargeMitra - India's EV Charger Sharing Platform" />
+    <meta property="og:description" content="Find, book, and share EV chargers across India. Join thousands of drivers and hosts creating a sustainable future together." />
+    <meta property="og:image" content="/og-image.jpg" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:url" content="https://chargemitra.com/" />
+    <meta property="twitter:title" content="ChargeMitra - India's EV Charger Sharing Platform" />
+    <meta property="twitter:description" content="Find, book, and share EV chargers across India. Join thousands of drivers and hosts creating a sustainable future together." />
+    <meta property="twitter:image" content="/og-image.jpg" />
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#FF9933" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ChargeMitra" />
+    
+    <!-- Icons -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Preload critical fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    
+    <!-- Critical CSS for faster loading -->
+    <style>
+      /* Critical CSS to prevent layout shift */
+      html, body {
+        margin: 0;
+        padding: 0;
+        font-family: 'Poppins', 'Noto Sans', system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      
+      #root {
+        min-height: 100vh;
+      }
+      
+      /* Loading screen */
+      .loading-screen {
+        position: fixed;
+        inset: 0;
+        background: linear-gradient(135deg, #fff5ee 0%, #ffffff 50%, #f0fdfa 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+      }
+      
+      .loading-logo {
+        width: 64px;
+        height: 64px;
+        background: linear-gradient(135deg, #FF9933 0%, #00695C 100%);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: pulse 2s infinite;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.1); opacity: 0.8; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Loading screen -->
+      <div class="loading-screen">
+        <div class="loading-logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(registration => console.log('SW registered'))
+            .catch(error => console.log('SW registration failed'))
+        })
+      }
+    </script>
+    
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

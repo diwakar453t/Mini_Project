@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: chargemitra_db
+    environment:
+      POSTGRES_USER: chargemitra
+      POSTGRES_PASSWORD: chargemitra123
+      POSTGRES_DB: chargemitra
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - chargemitra_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chargemitra -d chargemitra"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: chargemitra_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - chargemitra_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chargemitra_backend
+    environment:
+      - DATABASE_URL=postgresql://chargemitra:chargemitra123@db:5432/chargemitra
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - JWT_SECRET_KEY=dev-secret-key-change-in-production
+      - FRONTEND_URL=http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chargemitra_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: chargemitra_frontend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+      - VITE_RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
+      - VITE_ENVIRONMENT=development
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - chargemitra_network
+    command: npm run dev
+
+  # Telemetry Simulator (for demo)
+  telemetry-simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.telemetry
+    container_name: chargemitra_telemetry
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - chargemitra_network
+    command: python scripts/telemetry_simulator.py
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  chargemitra_network:
+    driver: bridge

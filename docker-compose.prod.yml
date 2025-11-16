@@ -1,0 +1,230 @@
+version: '3.8'
+
+services:
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: chargemitra_nginx_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - static_files:/usr/share/nginx/html/static
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: chargemitra_db_prod
+    environment:
+      POSTGRES_USER: ${DB_USER:-chargemitra}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-chargemitra}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./backend/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chargemitra} -d ${DB_NAME:-chargemitra}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: chargemitra_redis_prod
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chargemitra_backend_prod
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-chargemitra}:${DB_PASSWORD}@db:5432/${DB_NAME:-chargemitra}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - ENVIRONMENT=production
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET}
+      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - FRONTEND_URL=${FRONTEND_URL:-https://chargemitra.com}
+      - BACKEND_URL=${BACKEND_URL:-https://api.chargemitra.com}
+    volumes:
+      - uploads_data_prod:/app/uploads
+      - static_files:/app/static
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    container_name: chargemitra_frontend_prod
+    environment:
+      - VITE_API_URL=${BACKEND_URL:-https://api.chargemitra.com}
+      - VITE_GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - VITE_RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID}
+      - VITE_ENVIRONMENT=production
+    volumes:
+      - frontend_dist:/app/dist
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+
+  # Telemetry Simulator
+  telemetry-simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.telemetry
+    container_name: chargemitra_telemetry_prod
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - BACKEND_URL=http://backend:8000
+      - TELEMETRY_UPDATE_INTERVAL=10
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+
+  # Background worker (Celery)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chargemitra_worker_prod
+    command: celery -A app.core.celery worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-chargemitra}:${DB_PASSWORD}@db:5432/${DB_NAME:-chargemitra}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - ENVIRONMENT=production
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+
+  # Celery Beat (Scheduled tasks)
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chargemitra_beat_prod
+    command: celery -A app.core.celery beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-chargemitra}:${DB_PASSWORD}@db:5432/${DB_NAME:-chargemitra}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - ENVIRONMENT=production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+
+  # Monitoring - Prometheus (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: chargemitra_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # Monitoring - Grafana (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: chargemitra_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - chargemitra_network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data_prod:
+  redis_data_prod:
+  uploads_data_prod:
+  static_files:
+  frontend_dist:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  chargemitra_network:
+    driver: bridge
