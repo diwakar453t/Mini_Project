@@ -118,6 +118,10 @@
     @apply w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200 bg-white;
   }
 
+  /* Monochrome theme helpers */
+  .mono-card { @apply bg-white text-mono-800 border border-mono-200 shadow-soft; }
+  .mono-btn { @apply bg-mono-900 text-white hover:bg-mono-800 transition-colors; }
+
   /* Indian design elements */
   .indian-gradient {
     background: linear-gradient(135deg, #FF9933 0%, #ffffff 50%, #00695C 100%);

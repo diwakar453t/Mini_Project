@@ -5,7 +5,7 @@ DC := $(shell command -v docker-compose >/dev/null 2>&1 && echo docker-compose |
 
 # Development commands
 dev:
-	docker-compose up -d
+	docker compose up -d
 	@echo "🚀 Development environment started!"
 	@echo "Backend: http://localhost:8000"
 	@echo "Frontend: http://localhost:5173"
@@ -16,11 +16,11 @@ dev-logs:
 
 # Database commands
 init-db:
-	docker-compose exec backend alembic upgrade head
+	docker compose exec backend alembic upgrade head
 	@echo "✅ Database initialized with latest migrations"
 
 seed:
-	docker-compose exec backend python scripts/seed_data.py
+	docker compose exec backend python scripts/seed_data.py
 	@echo "✅ Sample data seeded successfully"
 
 reset-db:
@@ -61,7 +61,7 @@ install:
 
 # Cleanup commands
 clean:
-	docker-compose down -v
+	docker compose down -v
 	docker system prune -f
 	@echo "✅ Cleaned up containers and volumes"
 
@@ -73,16 +73,37 @@ shell-db:
 	docker-compose exec db psql -U chargemitra -d chargemitra
 
 logs-backend:
-	docker-compose logs -f backend
+	docker compose logs -f backend
 
 logs-frontend:
-	docker-compose logs -f frontend
+	docker compose logs -f frontend
 
 # Deployment commands
 deploy-staging:
 	./scripts/deploy_staging.sh
 
 dev-reset:
+	@echo "Bringing stack down and pruning volumes..."
+	docker compose down -v || true
+	@echo "Building images (no cache)..."
+	docker compose build --no-cache
+	@echo "Starting services..."
+	docker compose up -d
+	@echo "Waiting for DB to become healthy..."
+	@attempts=0; \
+	until [ $$attempts -ge 20 ] || docker compose ps | grep db | grep -q "(healthy)"; do \
+	  attempts=$$((attempts+1)); \
+	  echo "  ⏳ waiting for db health (attempt $$attempts/20)"; \
+	  sleep 3; \
+	done; \
+	if ! docker compose ps | grep db | grep -q "(healthy)"; then \
+	  echo "❌ DB not healthy after waiting"; exit 1; \
+	fi
+	@echo "Running migrations..."
+	docker compose exec backend alembic upgrade head
+	@echo "Seeding data..."
+	docker compose exec backend python scripts/seed_data.py
+	@echo "✅ Dev stack is ready: Frontend http://localhost:5173 — Backend http://localhost:8000/docs"
 	@echo "Bringing stack down and pruning volumes..."
 	$(DC) down -v || true
 	@echo "Building images (no cache)..."
